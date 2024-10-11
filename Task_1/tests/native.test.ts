@@ -1,37 +1,58 @@
-import assert from "assert";
-import * as web3 from "@solana/web3.js";
 import {
+  Connection,
   Keypair,
+  PublicKey,
   Transaction,
   SystemProgram,
-  ParsedAccountData,
+  TransactionInstruction,
+  sendAndConfirmTransaction,
+  TransactionSignature,
 } from "@solana/web3.js";
 import {
-  TOKEN_PROGRAM_ID,
-  MintLayout,
-  createInitializeMintInstruction,
-  createMintToInstruction,
   getOrCreateAssociatedTokenAccount,
+  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-// Manually initialize variables that are automatically defined in Playground
-const PROGRAM_ID = new web3.PublicKey("zaZvVNGdWhSMykZxPdzfwuRvdLj6kLBezuJwnQhHg8q");
-const connection = new web3.Connection("https://api.devnet.solana.com", "confirmed");
-const wallet = { keypair: web3.Keypair.generate() };
+import { BN } from "bn.js";
 
+// Constants
+const PROGRAM_ID = pg.PROGRAM_ID;
+const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
+// Helper function to send transactions (with pg.wallet signing)
+async function sendTransaction(instructions: TransactionInstruction[]) {
+  const blockhashInfo = await pg.connection.getLatestBlockhash();
+
+  const tx = new web3.Transaction().add(...instructions);
+  tx.recentBlockhash = blockhashInfo.blockhash;
+  tx.feePayer = pg.wallet.publicKey;
+
+  try {
+    const signature = await sendAndConfirmTransaction(
+      pg.connection,
+      tx,
+      [pg.wallet.keypair],
+      { commitment: "confirmed" }
+    );
+    console.log("Transaction confirmed:", signature);
+    return signature;
+  } catch (error) {
+    console.error("Error sending transaction:", error);
+    throw error;
+  }
+}
+
+// Helper to wait for balance change in the receiver's account due to timing mismatch
 async function waitForTokenBalance(
-  accountAddress,
-  expectedBalance,
+  accountAddress: PublicKey,
+  expectedBalance: number,
   retries = 5
 ) {
   for (let i = 0; i < retries; i++) {
-    const accountInfo = await connection.getParsedAccountInfo(
-      accountAddress
-    );
+    const accountInfo = await connection.getParsedAccountInfo(accountAddress);
 
     if (accountInfo.value !== null) {
       const tokenAmount =
-        accountInfo.value.data.parsed.info.tokenAmount.uiAmount;
+        accountInfo.value.data["parsed"].info.tokenAmount.uiAmount;
 
       if (tokenAmount === expectedBalance) {
         return tokenAmount;
@@ -41,61 +62,64 @@ async function waitForTokenBalance(
   throw new Error("Token balance did not update within expected time");
 }
 
-describe("Mint Program", () => {
+describe("Test Deployed Mint Program", () => {
   let mintAccount: Keypair;
-  let receiverTokenAccount: Keypair;
-  let mintAuthority: Keypair;
+  let receiverAccount: Keypair;
   let freezeAuthority: Keypair;
 
-  // Step 1: Test initialize_custom_mint function
+  // Step 1: Test the initialize_custom_mint function
   it("Initialize Mint Account", async () => {
     try {
       mintAccount = Keypair.generate();
-      mintAuthority = Keypair.generate();
       freezeAuthority = Keypair.generate();
 
-      const rentExemption =
-        await connection.getMinimumBalanceForRentExemption(MintLayout.span);
+      const rentExemption = await connection.getMinimumBalanceForRentExemption(
+        82
+      ); 
       console.log(`Rent exemption required: ${rentExemption}`);
+      console.log(`Program: ${pg.PROGRAM_ID}`);
 
       const createMintAccountIx = SystemProgram.createAccount({
-        fromPubkey: wallet.keypair.publicKey,
-        newAccountPubkey: mintAccount.publicKey,
+        fromPubkey: pg.wallet.publicKey, // Connected wallet funds the mint creation
+        newAccountPubkey: mintAccount.publicKey, // New mint account
         lamports: rentExemption,
-        space: MintLayout.span, 
-        programId: TOKEN_PROGRAM_ID,
+        space: 82, // Mint account space
+        programId: TOKEN_PROGRAM_ID, // SPL Token program ID
       });
+      console.log("1");
 
-      const initMintIx = createInitializeMintInstruction(
-        mintAccount.publicKey,
-        6,
-        mintAuthority.publicKey,
-        freezeAuthority.publicKey,
-        TOKEN_PROGRAM_ID
-      );
+      const initMintIx = new TransactionInstruction({
+        keys: [
+          { pubkey: mintAccount.publicKey, isSigner: false, isWritable: true }, // Mint account
+          {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false,
+          }, // System program
+          { pubkey: pg.wallet.publicKey, isSigner: true, isWritable: false }, // Mint authority (pg.wallet as signer)
+          {
+            pubkey: freezeAuthority.publicKey,
+            isSigner: false,
+            isWritable: false,
+          }, // Freeze authority
+        ],
+        programId: PROGRAM_ID,
+        data: Buffer.from([0]), // Instruction data to initialize the mint
+      });
+      console.log("2");
 
-      const tx = new Transaction().add(createMintAccountIx, initMintIx);
-      const signature = await connection.sendTransaction(tx, [
-        wallet.keypair,
-        mintAccount,
+      const signature = await sendTransaction([
+        createMintAccountIx,
+        initMintIx,
       ]);
-      console.log(`Transaction Signature: ${signature}`);
-
-      await connection.confirmTransaction(signature);
+      console.log(`Initialize mint transaction signature: ${signature}`);
 
       const mintInfo = await connection.getParsedAccountInfo(
         mintAccount.publicKey
       );
-      //console.log("mintInfo: ", mintInfo);
-      //console.log("mintAccount publicKey: ", mintAccount.publicKey);
-
-      assert(mintInfo.value !== null, "Mint account not initialized");
-
-      assert.equal(
-        mintInfo.value.owner.toString(),
-        TOKEN_PROGRAM_ID.toString(),
-        "Mint account is not owned by the Token Program"
-      );
+      if (!mintInfo.value) {
+        throw new Error("Mint account not initialized");
+      }
 
       console.log("Mint initialized successfully.");
     } catch (err) {
@@ -106,59 +130,56 @@ describe("Mint Program", () => {
 
   // Step 2: Test mint_custom_usdc function
   it("Mint tokens to receiver", async () => {
-    const receiverAccount = Keypair.generate();
-    const receiverTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      wallet.keypair,
-      mintAccount.publicKey,
-      receiverAccount.publicKey,
-      false // Allow owner off curve (must be true only for PDA accounts)
-    );
+    try {
+      receiverAccount = Keypair.generate();
 
-    // Mint 1000 units of token
-    const mintAmount = 1000 * 10 ** 6;
+      const receiverTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        pg.wallet.keypair,
+        mintAccount.publicKey,
+        receiverAccount.publicKey
+      );
 
-    const mintToIx = createMintToInstruction(
-      mintAccount.publicKey, 
-      receiverTokenAccount.address,
-      mintAuthority.publicKey,
-      mintAmount,
-      []
-    );
+      // Amount to mint: 1000 tokens (6 decimal places)
+      const mintAmount = 1000 * 10 ** 6;
 
-    const tx = new Transaction().add(mintToIx);
-    await connection.sendTransaction(tx, [wallet.keypair, mintAuthority]);
+      const mintData = Buffer.concat([
+        Buffer.from([1]), // Instruction to mint tokens
+        new BN(mintAmount).toArrayLike(Buffer, "le", 8),
+      ]);
 
-    const receiverTokenAccountInfo = await connection.getParsedAccountInfo(
-      receiverTokenAccount.address
-    );
+      const mintToIx = new TransactionInstruction({
+        keys: [
+          { pubkey: mintAccount.publicKey, isSigner: false, isWritable: true },
+          {
+            pubkey: receiverTokenAccount.address,
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: pg.wallet.publicKey, isSigner: true, isWritable: false },
+        ],
+        programId: PROGRAM_ID,
+        data: mintData,
+      });
 
-    assert(
-      receiverTokenAccountInfo.value !== null,
-      "Receiver account not initialized"
-    );
+      const signature = await sendTransaction([mintToIx]);
+      console.log(`Mint transaction signature: ${signature}`);
 
-    //const tokenAmount =
-    //  receiverTokenAccountInfo.value.data.parsed.info.tokenAmount.uiAmount;
-    const tokenAmount = await waitForTokenBalance(
-      receiverTokenAccount.address,
-      1000,
-      10
-    );
+      const tokenAmount = await waitForTokenBalance(
+        receiverTokenAccount.address,
+        1000,
+        10
+      );
+      if (tokenAmount !== 1000) {
+        throw new Error(
+          `Minted amount mismatch: expected 1000, got ${tokenAmount}`
+        );
+      }
 
-    // console.log(
-    //   "Receiver token account:",
-    //   receiverTokenAccount.address.toBase58()
-    // );
-    // console.log(
-    //   "\n\nparsed data: ",
-    //   (receiverTokenAccountInfo.value.data as ParsedAccountData).parsed
-    // );
-    //console.log("\nreciver: ", receiverTokenAccountInfo);
-    //console.log("\ntoken Amount: ", tokenAmount);
-
-    assert.equal(tokenAmount, 1000, "Minted amount does not match");
-
-    console.log("Tokens minted successfully.");
+      console.log("Tokens minted successfully.");
+    } catch (err) {
+      console.error("Error minting tokens:", err);
+      throw err;
+    }
   });
 });
