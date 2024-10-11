@@ -5,40 +5,39 @@ use solana_program::{
     msg,
     program_error::ProgramError,
     pubkey::Pubkey,
-    sysvar::{rent::Rent, Sysvar}
 };
 use spl_token::{
     instruction::{initialize_mint, mint_to},
-    state::Mint,
+    state::{Account, Mint},
 };
 
-
-// Declare and export the program's entrypoint
 entrypoint!(process_instruction);
 
-// Program entrypoint's implementation
 pub fn process_instruction(
-    program_id: &Pubkey, // Public key of the account the hello world program was loaded into
-    accounts: &[AccountInfo], // The account to say hello to
-    instruction_data: &[u8], // Ignored, all helloworld instructions are hellos
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
 ) -> ProgramResult {
     let instruction = instruction_data[0];
     match instruction {
         0 => {
-            msg!("Init");
-            initialize_custom_mint(program_id, accounts)?;
+            msg!("Initialize NFT mint");
+            initialize_nft_mint(program_id, accounts)?;
         }
         1 => {
-            msg!("Mint");
-            mint_custom_usdc(program_id, accounts, instruction_data)?;
+            msg!("Mint NFT");
+            mint_nft(program_id, accounts, instruction_data)?;
         }
-        _ => msg!("Invalid instruction")
+        _ => {
+            msg!("Invalid instruction");
+            return Err(ProgramError::InvalidInstructionData);
+        }
     }
     Ok(())
 }
 
-fn initialize_custom_mint(
-    program_id: &Pubkey,
+fn initialize_nft_mint(
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
@@ -46,35 +45,45 @@ fn initialize_custom_mint(
     let rent_acc = next_account_info(accounts_iter)?;
     let mint_authority = next_account_info(accounts_iter)?;
     let freeze_authority = next_account_info(accounts_iter)?;
-    
+
     initialize_mint(
-        program_id, 
+        &spl_token::ID, 
         mint_acc.key, 
-        rent_acc.key, 
-        Some(freeze_authority.key),
-        6)?;
-        msg!("Mint initialized");
+        mint_authority.key, 
+        Some(freeze_authority.key), 
+        0 
+    )?;
+    msg!("NFT mint initialized");
     Ok(())
 }
 
-fn mint_custom_usdc(
-    program_id: &Pubkey,
+fn mint_nft(
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
-    _instruction_data: &[u8],
+    instruction_data: &[u8],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let mint_acc = next_account_info(accounts_iter)?; 
-    let reciever_acc = next_account_info(accounts_iter)?;
+    let receiver_acc = next_account_info(accounts_iter)?;
     let mint_authority = next_account_info(accounts_iter)?;
-    let mint_amount = u64::from_le_bytes(_instruction_data[1..9].try_into().unwrap());
+
+    let mint_amount: u64 = 1;
     mint_to(
-        program_id, 
+        &spl_token::ID, 
         mint_acc.key, 
-        reciever_acc.key, 
+        receiver_acc.key, 
         mint_authority.key, 
         &[], 
         mint_amount
     )?;
-    msg!("Minted {}", mint_amount);
+    msg!("Minted 1 NFT");
+
+    if let Ok(receiver_account) = Account::unpack(&receiver_acc.try_borrow_data()?) {
+        if receiver_account.owner != *mint_authority.key {
+            msg!("Transfer restricted: Non-transferable NFT");
+            return Err(ProgramError::InvalidAccountData);
+        }
+    }
+
     Ok(())
 }
