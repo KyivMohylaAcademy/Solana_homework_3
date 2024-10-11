@@ -1,0 +1,21 @@
+{
+  "name": "solana_homework_3",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.8",
+    "@solana/web3.js": "^1.95.3",
+    "assert": "^2.1.0",
+    "mocha": "^10.7.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.13"
+  }
+}
