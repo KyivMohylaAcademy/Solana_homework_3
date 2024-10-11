@@ -42,15 +42,15 @@ fn initialize_custom_mint(
     accounts: &[AccountInfo],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
-    let mint_acc = next_account_info(accounts_iter)?; 
+    let mint_acc = next_account_info(accounts_iter)?;
     let rent_acc = next_account_info(accounts_iter)?;
     let mint_authority = next_account_info(accounts_iter)?;
     let freeze_authority = next_account_info(accounts_iter)?;
-    
+
     initialize_mint(
-        program_id, 
-        mint_acc.key, 
-        rent_acc.key, 
+        program_id,
+        mint_acc.key,
+        rent_acc.key,
         Some(freeze_authority.key),
         6)?;
         msg!("Mint initialized");
@@ -63,16 +63,16 @@ fn mint_custom_usdc(
     _instruction_data: &[u8],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
-    let mint_acc = next_account_info(accounts_iter)?; 
+    let mint_acc = next_account_info(accounts_iter)?;
     let reciever_acc = next_account_info(accounts_iter)?;
     let mint_authority = next_account_info(accounts_iter)?;
     let mint_amount = u64::from_le_bytes(_instruction_data[1..9].try_into().unwrap());
     mint_to(
-        program_id, 
-        mint_acc.key, 
-        reciever_acc.key, 
-        mint_authority.key, 
-        &[], 
+        program_id,
+        mint_acc.key,
+        reciever_acc.key,
+        mint_authority.key,
+        &[],
         mint_amount
     )?;
     msg!("Minted {}", mint_amount);
