@@ -44,7 +44,7 @@ fn initialize_non_transferable_nft(program_id: &Pubkey, accounts: &[AccountInfo]
 
     // Initialize standard Mint
     initialize_mint(
-        program_id,
+        &spl_token::id(),
         mint_acc.key,
         rent_acc.key,
         Some(freeze_authority.key),
@@ -65,7 +65,7 @@ fn mint_non_transferable_nft(
     let mint_authority = next_account_info(accounts_iter)?;
     let mint_amount = u64::from_le_bytes(_instruction_data[1..9].try_into().unwrap());
     mint_to(
-        program_id,
+        &spl_token::id(),
         mint_acc.key,
         reciever_acc.key,
         mint_authority.key,
