@@ -3,15 +3,11 @@ use solana_program::{
     entrypoint,
     entrypoint::ProgramResult,
     msg,
-    program_error::ProgramError,
     pubkey::Pubkey,
-    sysvar::{rent::Rent, Sysvar}
 };
-use spl_token::{
-    instruction::{initialize_mint, mint_to},
-    state::Mint,
+use spl_token_2022::{
+    instruction::{initialize_mint, initialize_non_transferable_mint, mint_to},
 };
-
 
 // Declare and export the program's entrypoint
 entrypoint!(process_instruction);
@@ -26,54 +22,55 @@ pub fn process_instruction(
     match instruction {
         0 => {
             msg!("Init");
-            initialize_custom_mint(program_id, accounts)?;
+            initialize_non_transferable_nft(program_id, accounts)?;
         }
         1 => {
             msg!("Mint");
-            mint_custom_usdc(program_id, accounts, instruction_data)?;
+            mint_non_transferable_nft(program_id, accounts, instruction_data)?;
         }
-        _ => msg!("Invalid instruction")
+        _ => msg!("Invalid instruction"),
     }
     Ok(())
 }
 
-fn initialize_custom_mint(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-) -> ProgramResult {
+fn initialize_non_transferable_nft(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
-    let mint_acc = next_account_info(accounts_iter)?; 
+    let mint_acc = next_account_info(accounts_iter)?;
     let rent_acc = next_account_info(accounts_iter)?;
-    let mint_authority = next_account_info(accounts_iter)?;
     let freeze_authority = next_account_info(accounts_iter)?;
-    
+
+    // Initialize Non-Transferable Mint
+    initialize_non_transferable_mint(program_id, mint_acc.key)?;
+
+    // Initialize standard Mint
     initialize_mint(
-        program_id, 
-        mint_acc.key, 
-        rent_acc.key, 
+        &spl_token::id(),
+        mint_acc.key,
+        rent_acc.key,
         Some(freeze_authority.key),
-        6)?;
-        msg!("Mint initialized");
+        6,
+    )?;
+    msg!("Mint initialized");
     Ok(())
 }
 
-fn mint_custom_usdc(
+fn mint_non_transferable_nft(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     _instruction_data: &[u8],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
-    let mint_acc = next_account_info(accounts_iter)?; 
+    let mint_acc = next_account_info(accounts_iter)?;
     let reciever_acc = next_account_info(accounts_iter)?;
     let mint_authority = next_account_info(accounts_iter)?;
     let mint_amount = u64::from_le_bytes(_instruction_data[1..9].try_into().unwrap());
     mint_to(
-        program_id, 
-        mint_acc.key, 
-        reciever_acc.key, 
-        mint_authority.key, 
-        &[], 
-        mint_amount
+        &spl_token::id(),
+        mint_acc.key,
+        reciever_acc.key,
+        mint_authority.key,
+        &[],
+        mint_amount,
     )?;
     msg!("Minted {}", mint_amount);
     Ok(())
